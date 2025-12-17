@@ -70,25 +70,29 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   res.json({ file: data })
 }))
 
-// Get download URL
+// Get download URL for translated file
 router.get('/:id/download', authenticate, asyncHandler(async (req, res) => {
   const { id } = req.params
   const userId = req.user.id
   
-  const { data: file, error } = await supabase
-    .from('files')
-    .select('*')
-    .eq('id', id)
+  // Get translation with file info
+  const { data: translation, error } = await supabase
+    .from('translations')
+    .select('*, files(*)')
+    .eq('file_id', id)
     .eq('user_id', userId)
+    .eq('status', 'completed')
+    .order('created_at', { ascending: false })
+    .limit(1)
     .single()
   
-  if (error || !file) {
-    return res.status(404).json({ error: 'File not found' })
+  if (error || !translation || !translation.translated_file_url) {
+    return res.status(404).json({ error: 'Translated file not found' })
   }
   
   const { data, error: urlError } = await supabase.storage
     .from('translations')
-    .createSignedUrl(file.translated_path, 3600) // 1 hour expiry
+    .createSignedUrl(translation.translated_file_url, 3600) // 1 hour expiry
   
   if (urlError) {
     return res.status(500).json({ error: 'Failed to generate download URL' })

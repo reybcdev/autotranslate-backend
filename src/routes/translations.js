@@ -45,8 +45,9 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     .insert({
       user_id: userId,
       file_id: fileId,
-      source_lang: sourceLang || 'auto',
-      target_lang: targetLang,
+      file_name: file.filename,
+      source_language: sourceLang || 'auto',
+      target_language: targetLang,
       status: 'pending'
     })
     .select()

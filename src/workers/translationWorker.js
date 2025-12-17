@@ -51,7 +51,7 @@ export const createTranslationWorker = () => {
           .from('translations')
           .update({
             status: 'completed',
-            translated_path: translatedPath,
+            translated_file_url: translatedPath,
             completed_at: new Date().toISOString()
           })
           .eq('id', translationId)
