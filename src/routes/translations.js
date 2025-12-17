@@ -9,11 +9,17 @@ const router = Router()
 
 // Create new translation job
 router.post('/', authenticate, asyncHandler(async (req, res) => {
-  const { fileId, sourceLang, targetLang } = req.body
+  const { fileId, sourceLang, targetLang, formality } = req.body
   const userId = req.user.id
   
   if (!fileId || !targetLang) {
     return res.status(400).json({ error: 'fileId and targetLang are required' })
+  }
+  
+  // Validate formality if provided
+  const validFormalities = ['default', 'more', 'less', 'prefer_more', 'prefer_less']
+  if (formality && !validFormalities.includes(formality)) {
+    return res.status(400).json({ error: `Invalid formality. Must be one of: ${validFormalities.join(', ')}` })
   }
   
   // Verify file belongs to user
@@ -65,7 +71,8 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     fileId,
     filePath: file.file_path,
     sourceLang: sourceLang || 'auto',
-    targetLang
+    targetLang,
+    formality: formality || null
   }, {
     attempts: 3,
     backoff: {
