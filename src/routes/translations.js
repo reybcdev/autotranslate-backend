@@ -9,11 +9,17 @@ const router = Router()
 
 // Create new translation job
 router.post('/', authenticate, asyncHandler(async (req, res) => {
-  const { fileId, sourceLang, targetLang } = req.body
+  const { fileId, sourceLang, targetLang, formality } = req.body
   const userId = req.user.id
   
   if (!fileId || !targetLang) {
     return res.status(400).json({ error: 'fileId and targetLang are required' })
+  }
+  
+  // Validate formality if provided
+  const validFormalities = ['default', 'more', 'less', 'prefer_more', 'prefer_less']
+  if (formality && !validFormalities.includes(formality)) {
+    return res.status(400).json({ error: `Invalid formality. Must be one of: ${validFormalities.join(', ')}` })
   }
   
   // Verify file belongs to user
@@ -28,16 +34,16 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'File not found' })
   }
   
-  // Check user credits
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('credits')
-    .eq('id', userId)
-    .single()
+  // // Check user credits
+  // const { data: profile } = await supabase
+  //   .from('profiles')
+  //   .select('credits')
+  //   .eq('id', userId)
+  //   .single()
   
-  if (!profile || profile.credits < 1) {
-    return res.status(402).json({ error: 'Insufficient credits' })
-  }
+  // if (!profile || profile.credits < 1) {
+  //   return res.status(402).json({ error: 'Insufficient credits' })
+  // }
   
   // Create translation record
   const { data: translation, error: createError } = await supabase
@@ -65,7 +71,8 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     fileId,
     filePath: file.file_path,
     sourceLang: sourceLang || 'auto',
-    targetLang
+    targetLang,
+    formality: formality || null
   }, {
     attempts: 3,
     backoff: {
@@ -96,6 +103,108 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   }
   
   res.json({ translation: data })
+}))
+
+// Retry failed translation
+router.post('/:id/retry', authenticate, asyncHandler(async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.id
+  
+  // Get the failed translation
+  const { data: translation, error: fetchError } = await supabase
+    .from('translations')
+    .select('*, files(*)')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .single()
+  
+  if (fetchError || !translation) {
+    return res.status(404).json({ error: 'Translation not found' })
+  }
+  
+  if (translation.status !== 'failed') {
+    return res.status(400).json({ error: 'Only failed translations can be retried' })
+  }
+  
+  // // Check user credits
+  // const { data: profile } = await supabase
+  //   .from('profiles')
+  //   .select('credits')
+  //   .eq('id', userId)
+  //   .single()
+  
+  // if (!profile || profile.credits < 1) {
+  //   return res.status(402).json({ error: 'Insufficient credits' })
+  // }
+  
+  // Reset translation status
+  const { error: updateError } = await supabase
+    .from('translations')
+    .update({
+      status: 'pending',
+      error_message: null
+    })
+    .eq('id', id)
+  
+  if (updateError) {
+    logger.error('Error resetting translation:', updateError)
+    return res.status(500).json({ error: 'Failed to retry translation' })
+  }
+  
+  // Re-queue the job
+  await translationQueue.add('translate', {
+    translationId: translation.id,
+    userId,
+    fileId: translation.file_id,
+    filePath: translation.files.file_path,
+    sourceLang: translation.source_language,
+    targetLang: translation.target_language
+  }, {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 2000
+    }
+  })
+  
+  logger.info(`Translation retry queued: ${id}`)
+  
+  res.json({ success: true, message: 'Translation retry queued' })
+}))
+
+// Cancel pending translation
+router.post('/:id/cancel', authenticate, asyncHandler(async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.id
+  
+  const { data: translation, error } = await supabase
+    .from('translations')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .single()
+  
+  if (error || !translation) {
+    return res.status(404).json({ error: 'Translation not found' })
+  }
+  
+  if (translation.status !== 'pending') {
+    return res.status(400).json({ error: 'Only pending translations can be cancelled' })
+  }
+  
+  const { error: updateError } = await supabase
+    .from('translations')
+    .update({ status: 'cancelled' })
+    .eq('id', id)
+  
+  if (updateError) {
+    logger.error('Error cancelling translation:', updateError)
+    return res.status(500).json({ error: 'Failed to cancel translation' })
+  }
+  
+  logger.info(`Translation cancelled: ${id}`)
+  
+  res.json({ success: true })
 }))
 
 // Get all user translations
