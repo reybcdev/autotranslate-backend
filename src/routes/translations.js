@@ -34,16 +34,16 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'File not found' })
   }
   
-  // Check user credits
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('credits')
-    .eq('id', userId)
-    .single()
+  // // Check user credits
+  // const { data: profile } = await supabase
+  //   .from('profiles')
+  //   .select('credits')
+  //   .eq('id', userId)
+  //   .single()
   
-  if (!profile || profile.credits < 1) {
-    return res.status(402).json({ error: 'Insufficient credits' })
-  }
+  // if (!profile || profile.credits < 1) {
+  //   return res.status(402).json({ error: 'Insufficient credits' })
+  // }
   
   // Create translation record
   const { data: translation, error: createError } = await supabase
@@ -126,16 +126,16 @@ router.post('/:id/retry', authenticate, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Only failed translations can be retried' })
   }
   
-  // Check user credits
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('credits')
-    .eq('id', userId)
-    .single()
+  // // Check user credits
+  // const { data: profile } = await supabase
+  //   .from('profiles')
+  //   .select('credits')
+  //   .eq('id', userId)
+  //   .single()
   
-  if (!profile || profile.credits < 1) {
-    return res.status(402).json({ error: 'Insufficient credits' })
-  }
+  // if (!profile || profile.credits < 1) {
+  //   return res.status(402).json({ error: 'Insufficient credits' })
+  // }
   
   // Reset translation status
   const { error: updateError } = await supabase

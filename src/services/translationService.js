@@ -1,4 +1,6 @@
-import { Readable } from 'stream'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
 import { getDeepLClient, isDeepLConfigured } from '../config/deepl.js'
 import { logger } from '../utils/logger.js'
 
@@ -36,32 +38,33 @@ export const translateDocument = async (fileBuffer, filename, sourceLang, target
     throw new Error(`Unsupported file type: ${extension}. Supported: ${SUPPORTED_DOCUMENT_EXTENSIONS.join(', ')}`)
   }
   
+  // Create temp files for input and output
+  const tempDir = os.tmpdir()
+  const tempInputPath = path.join(tempDir, `deepl_input_${Date.now()}${extension}`)
+  const tempOutputPath = path.join(tempDir, `deepl_output_${Date.now()}${extension}`)
+  
   try {
     logger.info(`Starting document translation: ${filename} -> ${target}`)
     
-    const translateOptions = {
-      filename,
-      ...options.formality && { formality: options.formality }
+    // Write input buffer to temp file
+    await fs.promises.writeFile(tempInputPath, fileBuffer)
+    
+    const translateOptions = {}
+    if (options.formality) {
+      translateOptions.formality = options.formality
     }
     
-    const outputBuffer = []
-    const outputStream = new Readable({
-      read() {}
-    })
-    
-    outputStream.on('data', chunk => outputBuffer.push(chunk))
-    
-    const inputStream = Readable.from(fileBuffer)
-    
+    // Translate using file paths
     await client.translateDocument(
-      inputStream,
-      outputStream,
+      tempInputPath,
+      tempOutputPath,
       source,
       target,
       translateOptions
     )
     
-    const translatedBuffer = Buffer.concat(outputBuffer)
+    // Read the translated file
+    const translatedBuffer = await fs.promises.readFile(tempOutputPath)
     
     logger.info(`Document translation completed: ${filename}`)
     
@@ -74,6 +77,14 @@ export const translateDocument = async (fileBuffer, filename, sourceLang, target
     }
     
     throw new Error(`Document translation failed: ${error.message}`)
+  } finally {
+    // Clean up temp files
+    try {
+      await fs.promises.unlink(tempInputPath).catch(() => {})
+      await fs.promises.unlink(tempOutputPath).catch(() => {})
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 }
 
