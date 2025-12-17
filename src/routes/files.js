@@ -33,22 +33,43 @@ router.post('/upload-url', authenticate, asyncHandler(async (req, res) => {
   })
 }))
 
-// Get user's files
+// Get user's files with translation status
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const userId = req.user.id
+  const { limit = 20, offset = 0 } = req.query
   
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('files')
-    .select('*')
+    .select(`
+      *,
+      translations (
+        id,
+        status,
+        target_language,
+        created_at,
+        completed_at
+      )
+    `, { count: 'exact' })
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
+    .range(offset, offset + parseInt(limit) - 1)
   
   if (error) {
     logger.error('Error fetching files:', error)
     return res.status(500).json({ error: 'Failed to fetch files' })
   }
   
-  res.json({ files: data })
+  // Add latest translation status summary
+  const filesWithStatus = data.map(file => {
+    const latestTranslation = file.translations?.[0] || null
+    return {
+      ...file,
+      latest_translation: latestTranslation,
+      translation_count: file.translations?.length || 0
+    }
+  })
+  
+  res.json({ files: filesWithStatus, total: count })
 }))
 
 // Get single file
@@ -68,6 +89,104 @@ router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   }
   
   res.json({ file: data })
+}))
+
+// Confirm file upload (called after pre-signed URL upload completes)
+router.post('/confirm-upload', authenticate, asyncHandler(async (req, res) => {
+  const { filePath, filename, fileSize, mimeType } = req.body
+  const userId = req.user.id
+  
+  if (!filePath || !filename) {
+    return res.status(400).json({ error: 'filePath and filename are required' })
+  }
+  
+  // Verify file exists in storage
+  const { data: fileExists, error: checkError } = await supabase.storage
+    .from('uploads')
+    .list(userId, {
+      search: filePath.replace(`${userId}/`, '')
+    })
+  
+  if (checkError || !fileExists?.length) {
+    logger.error('File not found in storage:', checkError)
+    return res.status(404).json({ error: 'File not found in storage' })
+  }
+  
+  // Create file record in database
+  const { data: file, error: insertError } = await supabase
+    .from('files')
+    .insert({
+      user_id: userId,
+      filename,
+      file_path: filePath,
+      file_size: fileSize || 0,
+      mime_type: mimeType || 'application/octet-stream',
+      status: 'uploaded'
+    })
+    .select()
+    .single()
+  
+  if (insertError) {
+    logger.error('Error creating file record:', insertError)
+    return res.status(500).json({ error: 'Failed to register file' })
+  }
+  
+  logger.info(`File confirmed: ${file.id} for user ${userId}`)
+  
+  res.status(201).json({ file })
+}))
+
+// Delete a file
+router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.id
+  
+  // Get file info
+  const { data: file, error: fetchError } = await supabase
+    .from('files')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .single()
+  
+  if (fetchError || !file) {
+    return res.status(404).json({ error: 'File not found' })
+  }
+  
+  // Check if file has pending translations
+  const { data: pendingTranslations } = await supabase
+    .from('translations')
+    .select('id')
+    .eq('file_id', id)
+    .in('status', ['pending', 'processing'])
+  
+  if (pendingTranslations?.length > 0) {
+    return res.status(409).json({ error: 'Cannot delete file with pending translations' })
+  }
+  
+  // Delete from storage
+  const { error: storageError } = await supabase.storage
+    .from('uploads')
+    .remove([file.file_path])
+  
+  if (storageError) {
+    logger.error('Error deleting from storage:', storageError)
+  }
+  
+  // Delete file record (cascades to translations)
+  const { error: deleteError } = await supabase
+    .from('files')
+    .delete()
+    .eq('id', id)
+  
+  if (deleteError) {
+    logger.error('Error deleting file record:', deleteError)
+    return res.status(500).json({ error: 'Failed to delete file' })
+  }
+  
+  logger.info(`File deleted: ${id}`)
+  
+  res.json({ success: true })
 }))
 
 // Get download URL for translated file

@@ -2,6 +2,7 @@ import { Worker } from 'bullmq'
 import { getRedisConnection } from '../config/redis.js'
 import { supabase } from '../config/supabase.js'
 import { translateContent } from '../services/translationService.js'
+import { notifyTranslationCompleted, notifyTranslationFailed } from '../services/notificationService.js'
 import { logger } from '../utils/logger.js'
 
 export const createTranslationWorker = () => {
@@ -59,6 +60,12 @@ export const createTranslationWorker = () => {
         // Deduct credit from user
         await supabase.rpc('deduct_credit', { user_id: userId })
         
+        // Get filename for notification
+        const filename = filePath.split('/').pop()
+        
+        // Notify user of completion
+        await notifyTranslationCompleted(userId, translationId, filename, targetLang)
+        
         logger.info(`Translation completed: ${translationId}`)
         
         return { success: true, translatedPath }
@@ -66,6 +73,12 @@ export const createTranslationWorker = () => {
         logger.error(`Translation job ${job.id} failed:`, error)
         
         await updateTranslationStatus(translationId, 'failed', error.message)
+        
+        // Get filename for notification
+        const filename = filePath.split('/').pop()
+        
+        // Notify user of failure
+        await notifyTranslationFailed(userId, translationId, filename, error.message)
         
         throw error
       }
