@@ -4,6 +4,7 @@ import { asyncHandler } from '../utils/helpers.js'
 import { supabase } from '../config/supabase.js'
 import { translationQueue } from '../queues/translationQueue.js'
 import { logger } from '../utils/logger.js'
+import { getSourceLanguages, getTargetLanguages } from '../services/translationService.js'
 
 const router = Router()
 
@@ -45,6 +46,21 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
   //   return res.status(402).json({ error: 'Insufficient credits' })
   // }
   
+  // Get language names
+  const [sourceLanguages, targetLanguages] = await Promise.all([
+    getSourceLanguages(),
+    getTargetLanguages()
+  ])
+  
+  const sourceCode = (sourceLang || 'auto').toUpperCase()
+  const targetCode = targetLang.toUpperCase()
+  
+  const sourceLangData = sourceLanguages.find(l => l.code.toUpperCase() === sourceCode)
+  const targetLangData = targetLanguages.find(l => l.code.toUpperCase() === targetCode)
+  
+  const sourceLangName = sourceCode === 'AUTO' ? 'Auto-detect' : (sourceLangData?.name || sourceCode)
+  const targetLangName = targetLangData?.name || targetCode
+  
   // Create translation record
   const { data: translation, error: createError } = await supabase
     .from('translations')
@@ -54,6 +70,8 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
       file_name: file.filename,
       source_language: sourceLang || 'auto',
       target_language: targetLang,
+      source_language_name: sourceLangName,
+      target_language_name: targetLangName,
       status: 'pending'
     })
     .select()
