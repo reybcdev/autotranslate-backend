@@ -21,6 +21,12 @@ export const config = {
     deeplApiKey: process.env.DEEPL_API_KEY
   },
   
+  resend: {
+    apiKey: process.env.RESEND_API_KEY,
+    fromEmail: process.env.RESEND_FROM_EMAIL,
+    replyTo: process.env.RESEND_REPLY_TO || process.env.RESEND_FROM_EMAIL
+  },
+  
   frontend: {
     url: process.env.FRONTEND_URL || 'http://localhost:5173'
   }
