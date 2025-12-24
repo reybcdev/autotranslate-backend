@@ -17,8 +17,28 @@ export const authenticate = async (req, res, next) => {
       logger.warn('Authentication failed:', error?.message)
       return res.status(401).json({ error: 'Invalid or expired token' })
     }
+
+    // Fetch profile to determine role (defaults to "user")
+    let role = 'user'
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, role, full_name, email')
+        .eq('id', user.id)
+        .single()
+
+      if (profileError) {
+        logger.warn('Failed to load profile for user', user.id, profileError.message)
+      } else {
+        role = profile?.role || 'user'
+        req.profile = profile
+      }
+    } catch (profileErr) {
+      logger.warn('Profile lookup failed:', profileErr?.message)
+    }
     
     req.user = user
+    req.userRole = role
     next()
   } catch (error) {
     logger.error('Auth middleware error:', error)

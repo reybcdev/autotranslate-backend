@@ -108,16 +108,20 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
 router.get('/:id', authenticate, asyncHandler(async (req, res) => {
   const { id } = req.params
   const userId = req.user.id
+  const isAdmin = req.userRole === 'admin'
   
   const { data, error } = await supabase
     .from('translations')
     .select('*, files(*)')
     .eq('id', id)
-    .eq('user_id', userId)
     .single()
   
   if (error || !data) {
     return res.status(404).json({ error: 'Translation not found' })
+  }
+
+  if (!isAdmin && data.user_id !== userId) {
+    return res.status(403).json({ error: 'Forbidden' })
   }
   
   res.json({ translation: data })
@@ -228,14 +232,20 @@ router.post('/:id/cancel', authenticate, asyncHandler(async (req, res) => {
 // Get all user translations
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const userId = req.user.id
-  const { status, limit = 20, offset = 0 } = req.query
+  const isAdmin = req.userRole === 'admin'
+  const { status, limit = 20, offset = 0, userId: queryUserId } = req.query
   
   let query = supabase
     .from('translations')
     .select('*, files(filename, file_size)', { count: 'exact' })
-    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
+
+  if (!isAdmin) {
+    query = query.eq('user_id', userId)
+  } else if (queryUserId) {
+    query = query.eq('user_id', queryUserId)
+  }
   
   if (status) {
     query = query.eq('status', status)
