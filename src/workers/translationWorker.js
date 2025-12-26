@@ -111,8 +111,7 @@ export const createTranslationWorker = () => {
         await supabase.rpc('deduct_credit', { user_id: userId })
         
         // Notify user of completion
-        await notifyTranslationCompleted(userId, translationId, filename, targetLang)
-        
+        await notifyTranslationCompleted(userId, translationId, filename, targetLang, translatedPath)
         logger.info(`Translation completed: ${translationId}`)
         
         return { success: true, translatedPath }
@@ -120,6 +119,7 @@ export const createTranslationWorker = () => {
         logger.error(`Translation job ${job.id} failed:`, error)
         
         await updateTranslationStatus(translationId, 'failed', error.message)
+        await notifyTranslationFailed(userId, translationId, filename, error.message)
         
         // Notify user of failure
         await notifyTranslationFailed(userId, translationId, filename, error.message)

@@ -87,6 +87,7 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     translationId: translation.id,
     userId,
     fileId,
+    filename: file.filename,
     filePath: file.file_path,
     sourceLang: sourceLang || 'auto',
     targetLang,
