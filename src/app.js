@@ -8,6 +8,8 @@ import translationsRouter from './routes/translations.js'
 import paymentsRouter from './routes/payments.js'
 import webhooksRouter from './routes/webhooks.js'
 import healthRouter from './routes/health.js'
+import notificationsRouter from './routes/notifications.js'
+import languagesRouter from './routes/languages.js'
 
 const app = express()
 
@@ -33,6 +35,8 @@ app.use('/api/files', filesRouter)
 app.use('/api/translations', translationsRouter)
 app.use('/api/payments', paymentsRouter)
 app.use('/api/webhooks', webhooksRouter)
+app.use('/api/notifications', notificationsRouter)
+app.use('/api/languages', languagesRouter)
 
 // Error handling
 app.use(errorHandler)

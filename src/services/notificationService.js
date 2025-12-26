@@ -30,7 +30,6 @@ const getUserEmailSettings = async (userId) => {
 
 const shouldSendEmail = (settings) =>
   Boolean(settings?.email && settings?.email_notifications !== false)
-
 export const createNotification = async (userId, type, title, message, metadata = {}) => {
   try {
     const { data, error } = await supabase
