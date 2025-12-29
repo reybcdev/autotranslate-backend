@@ -35,7 +35,7 @@ export const createTranslationWorker = () => {
   const worker = new Worker(
     'translations',
     async (job) => {
-      const { translationId, userId, fileId, filePath, sourceLang, targetLang, formality } = job.data
+      const { translationId, userId, fileId, filePath, sourceLang, targetLang, targetLangName, formality } = job.data
       
       logger.info(`Processing translation job ${job.id}: ${translationId}`)
       
@@ -111,7 +111,14 @@ export const createTranslationWorker = () => {
         await supabase.rpc('deduct_credit', { user_id: userId })
         
         // Notify user of completion
-        await notifyTranslationCompleted(userId, translationId, filename, targetLang, translatedPath)
+        await notifyTranslationCompleted(
+          userId,
+          translationId,
+          filename,
+          targetLangName || targetLang,
+          translatedPath,
+          targetLang
+        )
         logger.info(`Translation completed: ${translationId}`)
         
         return { success: true, translatedPath }

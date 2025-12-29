@@ -95,13 +95,20 @@ export const notifyTranslationFailed = async (userId, translationId, filename, e
   return notification
 }
 
-export const notifyTranslationCompleted = async (userId, translationId, filename, targetLang, translatedFilePath = null) => {
+export const notifyTranslationCompleted = async (
+  userId,
+  translationId,
+  filename,
+  targetLangName,
+  translatedFilePath = null,
+  targetLangCode = null
+) => {
   const notification = await createNotification(
     userId,
     NotificationType.TRANSLATION_COMPLETED,
     'Translation Completed',
-    `Your file "${filename}" has been translated to ${targetLang}`,
-    { translationId, filename, targetLang }
+    `Your file "${filename}" has been translated to ${targetLangName}`,
+    { translationId, filename, targetLangName, targetLangCode }
   )
 
   const emailSettings = await getUserEmailSettings(userId)
@@ -110,7 +117,7 @@ export const notifyTranslationCompleted = async (userId, translationId, filename
     await sendTranslationCompletedEmail(emailSettings.email, {
       translationId,
       filename,
-      targetLang,
+      targetLangName,
       translatedFilePath
     })
   }
