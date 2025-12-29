@@ -1,10 +1,12 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { authenticate } from '../middleware/auth.js'
 import { asyncHandler } from '../utils/helpers.js'
 import { stripe } from '../config/stripe.js'
 import { supabase } from '../config/supabase.js'
 import { logger } from '../utils/logger.js'
 import { config } from '../config/index.js'
+import { calculateOneOffPrice } from '../utils/pricing.js'
 
 const router = Router()
 
@@ -49,8 +51,8 @@ router.post('/checkout', authenticate, asyncHandler(async (req, res) => {
       }
     ],
     mode: 'payment',
-    success_url: `${config.frontend.url}/dashboard?payment=success`,
-    cancel_url: `${config.frontend.url}/pricing?payment=cancelled`,
+    success_url: `${config.frontend.url}/billing?payment=success`,
+    cancel_url: `${config.frontend.url}/billing?payment=cancelled`,
     metadata: {
       userId,
       plan,
@@ -61,6 +63,79 @@ router.post('/checkout', authenticate, asyncHandler(async (req, res) => {
   logger.info(`Checkout session created for user ${userId}, plan: ${plan}`)
   
   res.json({ sessionId: session.id, url: session.url })
+}))
+
+// Create checkout session for per-translation payment
+router.post('/translation/checkout', authenticate, asyncHandler(async (req, res) => {
+  const { fileId, wordCount, pageCount } = req.body
+  const userId = req.user.id
+  const userEmail = req.user.email
+
+  if (!fileId) {
+    return res.status(400).json({ error: 'fileId is required' })
+  }
+
+  const { data: file, error: fileError } = await supabase
+    .from('files')
+    .select('id, filename, file_size')
+    .eq('id', fileId)
+    .eq('user_id', userId)
+    .single()
+
+  if (fileError || !file) {
+    return res.status(404).json({ error: 'File not found' })
+  }
+
+  const pricing = calculateOneOffPrice({
+    wordCount,
+    pageCount,
+    fileSize: file.file_size || 0
+  })
+
+  const billingReference = randomUUID()
+  const pricingBasis = {
+    wordCount: pricing.breakdown.wordCount,
+    pageCount: pricing.breakdown.pageCount,
+    fileSize: file.file_size || 0
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    customer_email: userEmail,
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price_data: {
+          currency: pricing.currency,
+          product_data: {
+            name: `Translation for ${file.filename}`
+          },
+          unit_amount: pricing.amount
+        },
+        quantity: 1
+      }
+    ],
+    mode: 'payment',
+    success_url: `${config.frontend.url}/checkout?payment=success&ref=${billingReference}`,
+    cancel_url: `${config.frontend.url}/checkout?payment=cancelled`,
+    metadata: {
+      userId,
+      usageType: 'one_off',
+      billingReference,
+      fileId,
+      pricingBasis: JSON.stringify(pricingBasis)
+    }
+  })
+
+  logger.info(`One-off translation checkout for user ${userId}, file ${fileId}, amount ${pricing.amount}`)
+
+  res.json({
+    sessionId: session.id,
+    url: session.url,
+    billingReference,
+    amount: pricing.amount,
+    currency: pricing.currency,
+    pricing: pricing.breakdown
+  })
 }))
 
 // Get payment history
