@@ -91,6 +91,7 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     filePath: file.file_path,
     sourceLang: sourceLang || 'auto',
     targetLang,
+    targetLangName,
     formality: formality || null
   }, {
     attempts: 3,
@@ -181,7 +182,8 @@ router.post('/:id/retry', authenticate, asyncHandler(async (req, res) => {
     fileId: translation.file_id,
     filePath: translation.files.file_path,
     sourceLang: translation.source_language,
-    targetLang: translation.target_language
+    targetLang: translation.target_language,
+    targetLangName: translation.target_language_name
   }, {
     attempts: 3,
     backoff: {

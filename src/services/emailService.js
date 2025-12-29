@@ -46,7 +46,7 @@ const sendEmail = async ({ to, subject, html }) => {
       to,
       subject,
       html,
-      reply_to: getResendReplyTo()
+      replyTo: getResendReplyTo()
     })
 
     return response?.data || null
@@ -63,7 +63,7 @@ const sendEmail = async ({ to, subject, html }) => {
   }
 }
 
-export const sendTranslationCompletedEmail = async (userEmail, { translationId, filename, targetLang, translatedFilePath }) => {
+export const sendTranslationCompletedEmail = async (userEmail, { translationId, filename, targetLangName, translatedFilePath }) => {
   const downloadUrl = await getSignedTranslationUrl(translatedFilePath)
   const translationUrl = `${config.frontend.url}${FRONTEND_TRANSLATIONS_PATH}/${translationId}`
 
@@ -72,7 +72,7 @@ export const sendTranslationCompletedEmail = async (userEmail, { translationId, 
     subject: `Your translation of "${filename}" is ready`,
     html: translationCompletedTemplate({
       filename,
-      targetLang,
+      targetLangName,
       downloadUrl,
       translationUrl
     })
