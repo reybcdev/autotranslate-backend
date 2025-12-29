@@ -13,6 +13,7 @@ const hasEmailConfig = () => Boolean(resendClient && getResendFrom())
 
 const getSignedTranslationUrl = async (translatedFilePath) => {
   if (!translatedFilePath) {
+    logger.info('No translated file path provided; skipping signed URL generation')
     return null
   }
 
@@ -50,7 +51,14 @@ const sendEmail = async ({ to, subject, html }) => {
 
     return response?.data || null
   } catch (error) {
-    logger.error('Failed to send email:', error)
+    logger.error(
+      {
+        to,
+        subject,
+        error
+      },
+      'Failed to send email'
+    )
     return null
   }
 }
@@ -61,7 +69,7 @@ export const sendTranslationCompletedEmail = async (userEmail, { translationId, 
 
   return sendEmail({
     to: userEmail,
-    subject: `Tu traducción de "${filename}" está lista`,
+    subject: `Your translation of "${filename}" is ready`,
     html: translationCompletedTemplate({
       filename,
       targetLang,
@@ -76,7 +84,7 @@ export const sendTranslationFailedEmail = async (userEmail, { translationId, fil
 
   return sendEmail({
     to: userEmail,
-    subject: `Problema con la traducción de "${filename}"`,
+    subject: `We hit an issue translating "${filename}"`,
     html: translationFailedTemplate({
       filename,
       errorMessage,
@@ -90,7 +98,7 @@ export const sendCreditsLowEmail = async (userEmail, { remainingCredits }) => {
 
   return sendEmail({
     to: userEmail,
-    subject: 'Tus créditos de traducción están por agotarse',
+    subject: 'Your translation credits are running low',
     html: creditsLowTemplate({
       remainingCredits,
       topUpUrl

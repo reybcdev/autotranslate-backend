@@ -46,13 +46,29 @@ export const createNotification = async (userId, type, title, message, metadata 
       .single()
     
     if (error) {
-      logger.error('Error creating notification:', error)
+      logger.error(
+        {
+          userId,
+          type,
+          metadata,
+          error
+        },
+        'Error creating notification'
+      )
       return null
     }
     
     return data
   } catch (err) {
-    logger.error('Failed to create notification:', err)
+    logger.error(
+      {
+        userId,
+        type,
+        metadata,
+        err
+      },
+      'Failed to create notification'
+    )
     return null
   }
 }
