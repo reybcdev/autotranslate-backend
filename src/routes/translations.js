@@ -10,7 +10,14 @@ const router = Router()
 
 // Create new translation job
 router.post('/', authenticate, asyncHandler(async (req, res) => {
-  const { fileId, sourceLang, targetLang, formality } = req.body
+  const {
+    fileId,
+    sourceLang,
+    targetLang,
+    formality,
+    billingMode = 'plan',
+    billingReference = null
+  } = req.body
   const userId = req.user.id
   
   if (!fileId || !targetLang) {
@@ -35,16 +42,43 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'File not found' })
   }
   
-  // // Check user credits
-  // const { data: profile } = await supabase
-  //   .from('profiles')
-  //   .select('credits')
-  //   .eq('id', userId)
-  //   .single()
+  if (!['plan', 'one_off'].includes(billingMode)) {
+    return res.status(400).json({ error: 'Invalid billing mode' })
+  }
   
-  // if (!profile || profile.credits < 1) {
-  //   return res.status(402).json({ error: 'Insufficient credits' })
-  // }
+  let paymentRecord = null
+  
+  if (billingMode === 'plan') {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('credits')
+      .eq('id', userId)
+      .single()
+    
+    if (!profile || profile.credits < 1) {
+      return res.status(402).json({ error: 'Insufficient credits' })
+    }
+  } else {
+    if (!billingReference) {
+      return res.status(400).json({ error: 'billingReference is required for one-off payments' })
+    }
+    
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('billing_reference', billingReference)
+      .eq('user_id', userId)
+      .eq('usage_type', 'one_off')
+      .eq('status', 'completed')
+      .eq('consumed', false)
+      .single()
+    
+    if (paymentError || !payment) {
+      return res.status(402).json({ error: 'Payment not found or already used' })
+    }
+    
+    paymentRecord = payment
+  }
   
   // Get language names
   const [sourceLanguages, targetLanguages] = await Promise.all([
@@ -72,7 +106,9 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
       target_language: targetLang,
       source_language_name: sourceLangName,
       target_language_name: targetLangName,
-      status: 'pending'
+      status: 'pending',
+      billing_mode: billingMode,
+      payment_id: paymentRecord?.id || null
     })
     .select()
     .single()
@@ -80,6 +116,21 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
   if (createError) {
     logger.error('Error creating translation:', createError)
     return res.status(500).json({ error: 'Failed to create translation' })
+  }
+  
+  if (paymentRecord) {
+    const { error: paymentLinkError } = await supabase
+      .from('payments')
+      .update({
+        translation_id: translation.id,
+        consumed: true
+      })
+      .eq('id', paymentRecord.id)
+    
+    if (paymentLinkError) {
+      logger.error('Error linking payment to translation:', paymentLinkError)
+      return res.status(500).json({ error: 'Failed to link payment to translation' })
+    }
   }
   
   // Add job to queue
@@ -92,7 +143,9 @@ router.post('/', authenticate, asyncHandler(async (req, res) => {
     sourceLang: sourceLang || 'auto',
     targetLang,
     targetLangName,
-    formality: formality || null
+    formality: formality || null,
+    billingMode,
+    paymentId: paymentRecord?.id || null
   }, {
     attempts: 3,
     backoff: {
@@ -150,16 +203,23 @@ router.post('/:id/retry', authenticate, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Only failed translations can be retried' })
   }
   
-  // // Check user credits
-  // const { data: profile } = await supabase
-  //   .from('profiles')
-  //   .select('credits')
-  //   .eq('id', userId)
-  //   .single()
+  const billingMode = translation.billing_mode || 'plan'
   
-  // if (!profile || profile.credits < 1) {
-  //   return res.status(402).json({ error: 'Insufficient credits' })
-  // }
+  if (billingMode === 'plan') {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('credits')
+      .eq('id', userId)
+      .single()
+    
+    if (!profile || profile.credits < 1) {
+      return res.status(402).json({ error: 'Insufficient credits' })
+    }
+  } else {
+    if (!translation.payment_id) {
+      return res.status(402).json({ error: 'Payment not linked to translation' })
+    }
+  }
   
   // Reset translation status
   const { error: updateError } = await supabase
@@ -183,7 +243,9 @@ router.post('/:id/retry', authenticate, asyncHandler(async (req, res) => {
     filePath: translation.files.file_path,
     sourceLang: translation.source_language,
     targetLang: translation.target_language,
-    targetLangName: translation.target_language_name
+    targetLangName: translation.target_language_name,
+    billingMode,
+    paymentId: translation.payment_id || null
   }, {
     attempts: 3,
     backoff: {
@@ -236,7 +298,7 @@ router.post('/:id/cancel', authenticate, asyncHandler(async (req, res) => {
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const userId = req.user.id
   const isAdmin = req.userRole === 'admin'
-  const { status, limit = 20, offset = 0, userId: queryUserId } = req.query
+  const { status, limit = 20, offset = 0, userId: queryUserId, filename } = req.query
   
   let query = supabase
     .from('translations')
@@ -254,6 +316,13 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     query = query.eq('status', status)
   }
   
+  const sanitizedFilename = typeof filename === 'string' ? filename.trim() : ''
+
+  if (sanitizedFilename) {
+    const escaped = sanitizedFilename.replace(/[%_]/g, (char) => `\\${char}`)
+    const pattern = `%${escaped}%`
+    query = query.ilike('file_name', pattern)
+  }
   const { data, error, count } = await query
   
   if (error) {

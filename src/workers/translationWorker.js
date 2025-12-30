@@ -35,7 +35,18 @@ export const createTranslationWorker = () => {
   const worker = new Worker(
     'translations',
     async (job) => {
-      const { translationId, userId, fileId, filePath, sourceLang, targetLang, targetLangName, formality } = job.data
+      const {
+        translationId,
+        userId,
+        fileId,
+        filePath,
+        sourceLang,
+        targetLang,
+        targetLangName,
+        formality,
+        billingMode = 'plan',
+        paymentId = null
+      } = job.data
       
       logger.info(`Processing translation job ${job.id}: ${translationId}`)
       
@@ -107,8 +118,15 @@ export const createTranslationWorker = () => {
           })
           .eq('id', translationId)
         
-        // Deduct credit from user
-        await supabase.rpc('deduct_credit', { user_id: userId })
+        // Billing adjustments
+        if (billingMode === 'plan') {
+          await supabase.rpc('deduct_credit', { user_id: userId })
+        } else if (paymentId) {
+          await supabase
+            .from('payments')
+            .update({ consumed: true })
+            .eq('id', paymentId)
+        }
         
         // Notify user of completion
         await notifyTranslationCompleted(
