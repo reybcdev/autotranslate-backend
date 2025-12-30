@@ -298,7 +298,7 @@ router.post('/:id/cancel', authenticate, asyncHandler(async (req, res) => {
 router.get('/', authenticate, asyncHandler(async (req, res) => {
   const userId = req.user.id
   const isAdmin = req.userRole === 'admin'
-  const { status, limit = 20, offset = 0, userId: queryUserId } = req.query
+  const { status, limit = 20, offset = 0, userId: queryUserId, filename } = req.query
   
   let query = supabase
     .from('translations')
@@ -316,6 +316,13 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     query = query.eq('status', status)
   }
   
+  const sanitizedFilename = typeof filename === 'string' ? filename.trim() : ''
+
+  if (sanitizedFilename) {
+    const escaped = sanitizedFilename.replace(/[%_]/g, (char) => `\\${char}`)
+    const pattern = `%${escaped}%`
+    query = query.ilike('file_name', pattern)
+  }
   const { data, error, count } = await query
   
   if (error) {
