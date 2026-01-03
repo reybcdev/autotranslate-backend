@@ -24,6 +24,7 @@ create table if not exists public.payments (
 
 -- Ensure new billing columns exist even if payments table already existed
 alter table if exists public.payments
+  add column if not exists metadata jsonb,
   add column if not exists usage_type text not null default 'plan',
   add column if not exists pricing_basis jsonb,
   add column if not exists translation_id uuid references public.translations (id) on delete set null,

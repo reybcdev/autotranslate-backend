@@ -7,6 +7,7 @@ import { supabase } from '../config/supabase.js'
 import { logger } from '../utils/logger.js'
 import { config } from '../config/index.js'
 import { calculateOneOffPrice } from '../utils/pricing.js'
+import { processCheckoutSession } from '../services/paymentProcessor.js'
 
 const router = Router()
 
@@ -51,7 +52,7 @@ router.post('/checkout', authenticate, asyncHandler(async (req, res) => {
       }
     ],
     mode: 'payment',
-    success_url: `${config.frontend.url}/billing?payment=success`,
+    success_url: `${config.frontend.url}/billing?payment=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.frontend.url}/billing?payment=cancelled`,
     metadata: {
       userId,
@@ -115,7 +116,7 @@ router.post('/translation/checkout', authenticate, asyncHandler(async (req, res)
       }
     ],
     mode: 'payment',
-    success_url: `${config.frontend.url}/checkout?payment=success&ref=${billingReference}`,
+    success_url: `${config.frontend.url}/checkout?payment=success&ref=${billingReference}&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.frontend.url}/checkout?payment=cancelled`,
     metadata: {
       userId,
@@ -171,6 +172,56 @@ router.get('/credits', authenticate, asyncHandler(async (req, res) => {
   }
   
   res.json({ credits: data?.credits || 0 })
+}))
+
+// Confirm payment session (client-side fallback)
+router.post('/confirm', authenticate, asyncHandler(async (req, res) => {
+  const { sessionId } = req.body
+  const userId = req.user.id
+  
+  logger.info(`Payment confirmation request from user ${userId} for session ${sessionId}`)
+  
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId is required' })
+  }
+  
+  try {
+    // Retrieve the session from Stripe
+    logger.info(`Retrieving Stripe session: ${sessionId}`)
+    const session = await stripe.checkout.sessions.retrieve(sessionId)
+    logger.info(`Session retrieved: ${session.id}, payment_status: ${session.payment_status}, metadata:`, session.metadata)
+    
+    // Verify this session belongs to the authenticated user
+    if (session.metadata?.userId !== userId) {
+      logger.warn(`Session ${sessionId} userId mismatch: expected ${userId}, got ${session.metadata?.userId}`)
+      return res.status(403).json({ error: 'Session does not belong to this user' })
+    }
+    
+    // Only process if payment was successful
+    if (session.payment_status !== 'paid') {
+      logger.warn(`Session ${sessionId} payment not completed: ${session.payment_status}`)
+      return res.status(400).json({ error: 'Payment not completed' })
+    }
+    
+    // Process the session (adds credits, records payment)
+    logger.info(`Processing checkout session ${sessionId}`)
+    const processed = await processCheckoutSession(session)
+    logger.info(`Session ${sessionId} processed: ${processed}`)
+    
+    res.json({ 
+      success: true, 
+      processed,
+      message: processed ? 'Payment confirmed and processed' : 'Payment already processed'
+    })
+  } catch (error) {
+    logger.error('Error confirming payment session:', {
+      error: error.message,
+      stack: error.stack,
+      sessionId,
+      userId
+    })
+    res.status(500).json({ error: 'Failed to confirm payment', details: error.message })
+  }
 }))
 
 export default router
